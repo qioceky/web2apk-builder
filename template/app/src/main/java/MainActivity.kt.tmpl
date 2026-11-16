@@ -22,6 +22,8 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import org.json.JSONObject
 
@@ -227,6 +229,13 @@ class MainActivity : AppCompatActivity() {
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             }
             frame.addView(splash)
+        }
+        // Hormati status bar & navigation bar (edge-to-edge Android 15):
+        // konten tidak boleh tertutup bilah sistem.
+        ViewCompat.setOnApplyWindowInsetsListener(frame) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            insets
         }
         setContentView(frame)
         if (savedInstanceState == null) webView.loadUrl(cfg.startUrl) else webView.restoreState(savedInstanceState)
