@@ -76,7 +76,9 @@ class MainActivity : AppCompatActivity() {
             val text = assets.open("config.json").bufferedReader().use { it.readText() }
             val o = JSONObject(text)
             WebCfg(
-                startUrl = o.optString("startUrl", fallback.startUrl),
+                startUrl = if (o.optString("sourceType") == "html")
+                    "file:///android_asset/page.html"
+                else o.optString("startUrl", fallback.startUrl),
                 appName = o.optString("appName", fallback.appName),
                 themeColor = o.optString("themeColor", fallback.themeColor),
                 javaScript = o.optBoolean("javaScript", true),
@@ -111,6 +113,7 @@ class MainActivity : AppCompatActivity() {
         with(webView.settings) {
             javaScriptEnabled = cfg.javaScript
             domStorageEnabled = true
+            allowFileAccess = true
             databaseEnabled = true
             setSupportZoom(cfg.zoom)
             builtInZoomControls = cfg.zoom

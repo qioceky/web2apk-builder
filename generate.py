@@ -155,6 +155,7 @@ def main():
 
     tokens = {
         "__APP_NAME__": app_name,
+        "__SOURCE_TYPE__": "url",
         "__APP_NAME_JSON__": app_name.replace("\\", "\\\\").replace('"', '\\"'),
         "__APP_NAME_XML__": (app_name.replace("&", "&amp;").replace("<", "&lt;")
                              .replace(">", "&gt;").replace('"', "&quot;").replace("'", "\\'")),
