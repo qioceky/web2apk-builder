@@ -23,27 +23,31 @@ import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import org.json.JSONObject
 
 /**
- * Aplikasi WebView untuk __APP_NAME__ — dibuat dengan Web2APK.
- * Semua pilihan di bawah ini berasal dari konfigurasi saat project dibuat.
+ * Aplikasi WebView yang dibuat dengan Web2APK.
+ * Seluruh konfigurasi (URL, nama, warna, pilihan) dibaca dari
+ * assets/config.json saat runtime — file itu yang diganti oleh
+ * mode offline Web2APK tanpa perlu compile ulang.
  */
+data class WebCfg(
+    val startUrl: String,
+    val appName: String,
+    val themeColor: String,
+    val javaScript: Boolean,
+    val zoom: Boolean,
+    val fileUpload: Boolean,
+    val externalLinks: Boolean,
+    val splash: Boolean,
+    val hideToolbar: Boolean,
+    val pullRefresh: Boolean,
+    val cookies: Boolean,
+)
+
 class MainActivity : AppCompatActivity() {
 
-    companion object {
-        const val START_URL = "__URL__"
-        const val APP_NAME = "__APP_NAME__"
-        const val THEME_COLOR = "__THEME_COLOR__"
-        const val OPT_JAVASCRIPT = __OPT_JAVASCRIPT__
-        const val OPT_ZOOM = __OPT_ZOOM__
-        const val OPT_FILE_UPLOAD = __OPT_FILE_UPLOAD__
-        const val OPT_EXTERNAL_LINKS = __OPT_EXTERNAL_LINKS__
-        const val OPT_SPLASH = __OPT_SPLASH__
-        const val OPT_HIDE_TOOLBAR = __OPT_HIDE_TOOLBAR__
-        const val OPT_PULL_REFRESH = __OPT_PULL_REFRESH__
-        const val OPT_COOKIES = __OPT_COOKIES__
-    }
-
+    private lateinit var cfg: WebCfg
     private lateinit var webView: WebView
     private var splash: FrameLayout? = null
     private var fileCallback: ValueCallback<Array<Uri>>? = null
@@ -62,13 +66,41 @@ class MainActivity : AppCompatActivity() {
         fileCallback = null
     }
 
+    private fun loadCfg(): WebCfg {
+        val fallback = WebCfg(
+            "https://example.com", "WebApp", "#FFD02E",
+            javaScript = true, zoom = false, fileUpload = true, externalLinks = true,
+            splash = true, hideToolbar = false, pullRefresh = true, cookies = true
+        )
+        return try {
+            val text = assets.open("config.json").bufferedReader().use { it.readText() }
+            val o = JSONObject(text)
+            WebCfg(
+                startUrl = o.optString("startUrl", fallback.startUrl),
+                appName = o.optString("appName", fallback.appName),
+                themeColor = o.optString("themeColor", fallback.themeColor),
+                javaScript = o.optBoolean("javaScript", true),
+                zoom = o.optBoolean("zoom", false),
+                fileUpload = o.optBoolean("fileUpload", true),
+                externalLinks = o.optBoolean("externalLinks", true),
+                splash = o.optBoolean("splash", true),
+                hideToolbar = o.optBoolean("hideToolbar", false),
+                pullRefresh = o.optBoolean("pullRefresh", true),
+                cookies = o.optBoolean("cookies", true),
+            )
+        } catch (e: Exception) {
+            fallback
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val theme = try { Color.parseColor(THEME_COLOR) } catch (e: Exception) { Color.BLACK }
+        cfg = loadCfg()
+        val theme = try { Color.parseColor(cfg.themeColor) } catch (e: Exception) { Color.BLACK }
 
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        if (!OPT_HIDE_TOOLBAR) root.addView(buildToolbar(theme))
+        if (!cfg.hideToolbar) root.addView(buildToolbar(theme))
         val progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3))
@@ -77,24 +109,24 @@ class MainActivity : AppCompatActivity() {
 
         webView = WebView(this)
         with(webView.settings) {
-            javaScriptEnabled = OPT_JAVASCRIPT
+            javaScriptEnabled = cfg.javaScript
             domStorageEnabled = true
             databaseEnabled = true
-            setSupportZoom(OPT_ZOOM)
-            builtInZoomControls = OPT_ZOOM
+            setSupportZoom(cfg.zoom)
+            builtInZoomControls = cfg.zoom
             displayZoomControls = false
             loadWithOverviewMode = true
             useWideViewPort = true
             mediaPlaybackRequiresUserGesture = false
         }
         CookieManager.getInstance().apply {
-            setAcceptCookie(OPT_COOKIES)
-            setAcceptThirdPartyCookies(webView, OPT_COOKIES)
+            setAcceptCookie(cfg.cookies)
+            setAcceptThirdPartyCookies(webView, cfg.cookies)
         }
-        webView.webViewClient = object : WebViewClient() {
+        val client = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val url = request.url
-                if (OPT_EXTERNAL_LINKS && url.host != null && url.host != Uri.parse(START_URL).host &&
+                if (cfg.externalLinks && url.host != null && url.host != Uri.parse(cfg.startUrl).host &&
                     (url.scheme == "http" || url.scheme == "https")
                 ) {
                     startActivity(Intent(Intent.ACTION_VIEW, url))
@@ -117,12 +149,13 @@ class MainActivity : AppCompatActivity() {
                         null,
                         "<html><body style='font-family:sans-serif;text-align:center;padding-top:80px'>" +
                             "<h2>Tidak ada koneksi</h2><p>Halaman gagal dimuat. Periksa internet lalu coba lagi.</p>" +
-                            "<p><a href='" + START_URL + "'>Muat ulang</a></p></body></html>",
+                            "<p><a href='" + cfg.startUrl + "'>Muat ulang</a></p></body></html>",
                         "text/html", "UTF-8", null
                     )
                 }
             }
         }
+        webView.webViewClient = client
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView, newProgress: Int) {
                 progress.progress = newProgress
@@ -138,7 +171,7 @@ class MainActivity : AppCompatActivity() {
                 filePathCallback: ValueCallback<Array<Uri>>,
                 fileChooserParams: FileChooserParams
             ): Boolean {
-                if (!OPT_FILE_UPLOAD) return false
+                if (!cfg.fileUpload) return false
                 fileCallback?.onReceiveValue(null)
                 fileCallback = filePathCallback
                 return try {
@@ -154,35 +187,35 @@ class MainActivity : AppCompatActivity() {
             try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (e: Exception) { }
         }
 
-        if (OPT_PULL_REFRESH) {
+        if (cfg.pullRefresh) {
             val swipe = SwipeRefreshLayout(this)
             swipe.setColorSchemeColors(theme)
             swipe.addView(webView)
             swipe.setOnRefreshListener { webView.reload() }
-            root.addView(swipe)
-            // Hentikan indikator refresh saat halaman selesai.
-            val origClient = webView.webViewClient
             webView.webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest) =
-                    origClient.shouldOverrideUrlLoading(v, r)
+                    client.shouldOverrideUrlLoading(v, r)
                 override fun onPageFinished(v: WebView, u: String) {
                     swipe.isRefreshing = false
-                    origClient.onPageFinished(v, u)
+                    client.onPageFinished(v, u)
                 }
-                override fun onReceivedError(v: WebView, r: WebResourceRequest, e: WebResourceError) =
-                    origClient.onReceivedError(v, r, e)
+                override fun onReceivedError(v: WebView, r: WebResourceRequest, e: WebResourceError) {
+                    swipe.isRefreshing = false
+                    client.onReceivedError(v, r, e)
+                }
             }
+            root.addView(swipe)
         } else {
             root.addView(webView)
         }
 
         val frame = FrameLayout(this)
         frame.addView(root)
-        if (OPT_SPLASH) {
+        if (cfg.splash) {
             splash = FrameLayout(this).apply {
                 setBackgroundColor(theme)
                 val tv = TextView(this@MainActivity).apply {
-                    text = APP_NAME
+                    text = cfg.appName
                     textSize = 26f
                     setTextColor(Color.WHITE)
                     gravity = Gravity.CENTER
@@ -193,7 +226,7 @@ class MainActivity : AppCompatActivity() {
             frame.addView(splash)
         }
         setContentView(frame)
-        if (savedInstanceState == null) webView.loadUrl(START_URL) else webView.restoreState(savedInstanceState)
+        if (savedInstanceState == null) webView.loadUrl(cfg.startUrl) else webView.restoreState(savedInstanceState)
     }
 
     private fun buildToolbar(theme: Int): LinearLayout {
@@ -213,7 +246,7 @@ class MainActivity : AppCompatActivity() {
         bar.addView(btn("‹") { if (webView.canGoBack()) webView.goBack() })
         bar.addView(btn("›") { if (webView.canGoForward()) webView.goForward() })
         bar.addView(TextView(this).apply {
-            text = APP_NAME
+            text = cfg.appName
             textSize = 17f
             setTextColor(Color.WHITE)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)

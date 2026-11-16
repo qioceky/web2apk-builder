@@ -27,6 +27,7 @@ TEXT_FILES = {
     "app/src/main/AndroidManifest.xml.tmpl": "app/src/main/AndroidManifest.xml",
     "app/src/main/res/values/strings.xml.tmpl": "app/src/main/res/values/strings.xml",
     "app/src/main/res/values/themes.xml.tmpl": "app/src/main/res/values/themes.xml",
+    "app/src/main/assets/config.json.tmpl": "app/src/main/assets/config.json",
 }
 RAW_FILES = {
     "gradlew": "gradlew",
@@ -154,6 +155,7 @@ def main():
 
     tokens = {
         "__APP_NAME__": app_name,
+        "__APP_NAME_JSON__": app_name.replace("\\", "\\\\").replace('"', '\\"'),
         "__APP_NAME_XML__": (app_name.replace("&", "&amp;").replace("<", "&lt;")
                              .replace(">", "&gt;").replace('"', "&quot;").replace("'", "\\'")),
         "__PROJECT_NAME__": re.sub(r"[^A-Za-z0-9 ]", "", app_name).strip() or "WebApp",
