@@ -1,0 +1,241 @@
+package __PACKAGE__
+
+import android.annotation.SuppressLint
+import android.content.Intent
+import android.graphics.Color
+import android.net.Uri
+import android.os.Bundle
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.webkit.CookieManager
+import android.webkit.PermissionRequest
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+
+/**
+ * Aplikasi WebView untuk __APP_NAME__ — dibuat dengan Web2APK.
+ * Semua pilihan di bawah ini berasal dari konfigurasi saat project dibuat.
+ */
+class MainActivity : AppCompatActivity() {
+
+    companion object {
+        const val START_URL = "__URL__"
+        const val APP_NAME = "__APP_NAME__"
+        const val THEME_COLOR = "__THEME_COLOR__"
+        const val OPT_JAVASCRIPT = __OPT_JAVASCRIPT__
+        const val OPT_ZOOM = __OPT_ZOOM__
+        const val OPT_FILE_UPLOAD = __OPT_FILE_UPLOAD__
+        const val OPT_EXTERNAL_LINKS = __OPT_EXTERNAL_LINKS__
+        const val OPT_SPLASH = __OPT_SPLASH__
+        const val OPT_HIDE_TOOLBAR = __OPT_HIDE_TOOLBAR__
+        const val OPT_PULL_REFRESH = __OPT_PULL_REFRESH__
+        const val OPT_COOKIES = __OPT_COOKIES__
+    }
+
+    private lateinit var webView: WebView
+    private var splash: FrameLayout? = null
+    private var fileCallback: ValueCallback<Array<Uri>>? = null
+
+    private val fileChooser = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val data = result.data
+        val uris: Array<Uri>? = when {
+            result.resultCode != RESULT_OK -> null
+            data?.clipData != null -> Array(data.clipData!!.itemCount) { i -> data.clipData!!.getItemAt(i).uri }
+            data?.data != null -> arrayOf(data.data!!)
+            else -> null
+        }
+        fileCallback?.onReceiveValue(uris)
+        fileCallback = null
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val theme = try { Color.parseColor(THEME_COLOR) } catch (e: Exception) { Color.BLACK }
+
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        if (!OPT_HIDE_TOOLBAR) root.addView(buildToolbar(theme))
+        val progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3))
+        }
+        root.addView(progress)
+
+        webView = WebView(this)
+        with(webView.settings) {
+            javaScriptEnabled = OPT_JAVASCRIPT
+            domStorageEnabled = true
+            databaseEnabled = true
+            setSupportZoom(OPT_ZOOM)
+            builtInZoomControls = OPT_ZOOM
+            displayZoomControls = false
+            loadWithOverviewMode = true
+            useWideViewPort = true
+            mediaPlaybackRequiresUserGesture = false
+        }
+        CookieManager.getInstance().apply {
+            setAcceptCookie(OPT_COOKIES)
+            setAcceptThirdPartyCookies(webView, OPT_COOKIES)
+        }
+        webView.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                val url = request.url
+                if (OPT_EXTERNAL_LINKS && url.host != null && url.host != Uri.parse(START_URL).host &&
+                    (url.scheme == "http" || url.scheme == "https")
+                ) {
+                    startActivity(Intent(Intent.ACTION_VIEW, url))
+                    return true
+                }
+                if (url.scheme != "http" && url.scheme != "https") {
+                    try { startActivity(Intent(Intent.ACTION_VIEW, url)) } catch (e: Exception) { }
+                    return true
+                }
+                return false
+            }
+
+            override fun onPageFinished(view: WebView, url: String) {
+                splash?.animate()?.alpha(0f)?.setDuration(250)?.withEndAction { splash?.visibility = View.GONE }?.start()
+            }
+
+            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                if (request.isForMainFrame) {
+                    view.loadDataWithBaseURL(
+                        null,
+                        "<html><body style='font-family:sans-serif;text-align:center;padding-top:80px'>" +
+                            "<h2>Tidak ada koneksi</h2><p>Halaman gagal dimuat. Periksa internet lalu coba lagi.</p>" +
+                            "<p><a href='" + START_URL + "'>Muat ulang</a></p></body></html>",
+                        "text/html", "UTF-8", null
+                    )
+                }
+            }
+        }
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onProgressChanged(view: WebView, newProgress: Int) {
+                progress.progress = newProgress
+                progress.visibility = if (newProgress >= 100) View.GONE else View.VISIBLE
+            }
+
+            override fun onPermissionRequest(request: PermissionRequest) {
+                request.grant(request.resources)
+            }
+
+            override fun onShowFileChooser(
+                view: WebView,
+                filePathCallback: ValueCallback<Array<Uri>>,
+                fileChooserParams: FileChooserParams
+            ): Boolean {
+                if (!OPT_FILE_UPLOAD) return false
+                fileCallback?.onReceiveValue(null)
+                fileCallback = filePathCallback
+                return try {
+                    fileChooser.launch(fileChooserParams.createIntent())
+                    true
+                } catch (e: Exception) {
+                    fileCallback = null
+                    false
+                }
+            }
+        }
+        webView.setDownloadListener { url, _, _, _, _ ->
+            try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (e: Exception) { }
+        }
+
+        if (OPT_PULL_REFRESH) {
+            val swipe = SwipeRefreshLayout(this)
+            swipe.setColorSchemeColors(theme)
+            swipe.addView(webView)
+            swipe.setOnRefreshListener { webView.reload() }
+            root.addView(swipe)
+            // Hentikan indikator refresh saat halaman selesai.
+            val origClient = webView.webViewClient
+            webView.webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest) =
+                    origClient.shouldOverrideUrlLoading(v, r)
+                override fun onPageFinished(v: WebView, u: String) {
+                    swipe.isRefreshing = false
+                    origClient.onPageFinished(v, u)
+                }
+                override fun onReceivedError(v: WebView, r: WebResourceRequest, e: WebResourceError) =
+                    origClient.onReceivedError(v, r, e)
+            }
+        } else {
+            root.addView(webView)
+        }
+
+        val frame = FrameLayout(this)
+        frame.addView(root)
+        if (OPT_SPLASH) {
+            splash = FrameLayout(this).apply {
+                setBackgroundColor(theme)
+                val tv = TextView(this@MainActivity).apply {
+                    text = APP_NAME
+                    textSize = 26f
+                    setTextColor(Color.WHITE)
+                    gravity = Gravity.CENTER
+                }
+                addView(tv, FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            }
+            frame.addView(splash)
+        }
+        setContentView(frame)
+        if (savedInstanceState == null) webView.loadUrl(START_URL) else webView.restoreState(savedInstanceState)
+    }
+
+    private fun buildToolbar(theme: Int): LinearLayout {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(theme)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+        }
+        fun btn(label: String, action: () -> Unit) = TextView(this).apply {
+            text = label
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            setOnClickListener { action() }
+        }
+        bar.addView(btn("‹") { if (webView.canGoBack()) webView.goBack() })
+        bar.addView(btn("›") { if (webView.canGoForward()) webView.goForward() })
+        bar.addView(TextView(this).apply {
+            text = APP_NAME
+            textSize = 17f
+            setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        bar.addView(btn("⟳") { webView.reload() })
+        return bar
+    }
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        if (::webView.isInitialized) webView.saveState(outState)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (::webView.isInitialized && webView.canGoBack()) webView.goBack() else super.onBackPressed()
+    }
+
+    override fun onDestroy() {
+        if (::webView.isInitialized) webView.destroy()
+        super.onDestroy()
+    }
+}

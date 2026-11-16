@@ -1,0 +1,57 @@
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.jetbrains.kotlin.android)
+}
+
+android {
+    namespace '__PACKAGE__'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "__PACKAGE__"
+        minSdk 24
+        targetSdk 35
+        versionCode __VERSION_CODE__
+        versionName "__VERSION_NAME__"
+    }
+
+    signingConfigs {
+        // Keystore tetap dari secret CI (GENAPP_*) — lihat README.md.
+        // Tanpa env itu, build lokal memakai debug bawaan.
+        pinned {
+            storeFile file(System.getenv("GENAPP_STORE_FILE") ?: "/nonexistent/genapp.keystore")
+            storePassword System.getenv("GENAPP_STORE_PASSWORD") ?: "android"
+            keyAlias System.getenv("GENAPP_KEY_ALIAS") ?: "genapp"
+            keyPassword System.getenv("GENAPP_KEY_PASSWORD") ?: "android"
+            storeType "jks"
+        }
+    }
+
+    buildTypes {
+        release {
+            if (System.getenv("GENAPP_STORE_FILE")) {
+                signingConfig signingConfigs.pinned
+            }
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            if (System.getenv("GENAPP_STORE_FILE")) {
+                signingConfig signingConfigs.pinned
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+}
+
+dependencies {
+    implementation libs.appcompat
+    implementation libs.swiperefreshlayout
+}

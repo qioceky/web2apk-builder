@@ -1,0 +1,186 @@
+name: build-apk
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_url:
+        description: "Alamat website (contoh: https://tokosaya.com)"
+        required: true
+        type: string
+      app_name:
+        description: "Nama aplikasi"
+        required: true
+        type: string
+      package_id:
+        description: "Package ID (contoh: id.tokosaya)"
+        required: true
+        type: string
+      version_name:
+        description: "Versi"
+        required: false
+        default: "1.0"
+        type: string
+      theme_color:
+        description: "Warna tema (#hex)"
+        required: false
+        default: "#FFD02E"
+        type: string
+      icon_url:
+        description: "URL ikon (opsional — kosongkan untuk ambil otomatis dari situs)"
+        required: false
+        default: ""
+        type: string
+      opt_javascript:
+        description: "JavaScript"
+        type: boolean
+        default: true
+      opt_zoom:
+        description: "Zoom"
+        type: boolean
+        default: false
+      opt_file_upload:
+        description: "Upload file"
+        type: boolean
+        default: true
+      opt_external_links:
+        description: "Link luar dibuka di browser"
+        type: boolean
+        default: true
+      opt_splash:
+        description: "Splash screen"
+        type: boolean
+        default: true
+      opt_hide_toolbar:
+        description: "Sembunyikan bilah judul"
+        type: boolean
+        default: false
+      opt_pull_refresh:
+        description: "Tarik untuk segarkan"
+        type: boolean
+        default: true
+      opt_cookies:
+        description: "Cookie"
+        type: boolean
+        default: true
+      app_slug:
+        description: "Slug nama file APK (diisi aplikasi Web2APK)"
+        required: false
+        default: "webapp"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install SDK packages (compileSdk 35)
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-builder-${{ runner.os }}-v1
+
+      - name: Generate project dari template
+        env:
+          SITE_URL: ${{ inputs.site_url }}
+          APP_NAME: ${{ inputs.app_name }}
+          PACKAGE_ID: ${{ inputs.package_id }}
+          VERSION_NAME: ${{ inputs.version_name }}
+          THEME_COLOR: ${{ inputs.theme_color }}
+          ICON_URL: ${{ inputs.icon_url }}
+          OPT_JAVASCRIPT: ${{ inputs.opt_javascript }}
+          OPT_ZOOM: ${{ inputs.opt_zoom }}
+          OPT_FILE_UPLOAD: ${{ inputs.opt_file_upload }}
+          OPT_EXTERNAL_LINKS: ${{ inputs.opt_external_links }}
+          OPT_SPLASH: ${{ inputs.opt_splash }}
+          OPT_HIDE_TOOLBAR: ${{ inputs.opt_hide_toolbar }}
+          OPT_PULL_REFRESH: ${{ inputs.opt_pull_refresh }}
+          OPT_COOKIES: ${{ inputs.opt_cookies }}
+        run: |
+          python3 -m pip install --quiet pillow
+          python3 generate.py
+
+      - name: Pulihkan keystore tetap dari secret
+        env:
+          GENAPP_KEYSTORE_BASE64: ${{ secrets.GENAPP_KEYSTORE_BASE64 }}
+          GENAPP_KEYSTORE_PASSWORD: ${{ secrets.GENAPP_KEYSTORE_PASSWORD }}
+          GENAPP_KEY_ALIAS: ${{ secrets.GENAPP_KEY_ALIAS }}
+          GENAPP_KEY_PASSWORD: ${{ secrets.GENAPP_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GENAPP_KEYSTORE_BASE64:-}" ]; then
+            echo "::error::Secret GENAPP_KEYSTORE_BASE64 belum diisi — build dibatalkan agar APK tidak bertanda tangan acak."
+            exit 1
+          fi
+          mkdir -p "$HOME/.android"
+          printf '%s' "$GENAPP_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/genapp.keystore"
+          test -s "$HOME/.android/genapp.keystore"
+          {
+            echo "GENAPP_STORE_FILE=$HOME/.android/genapp.keystore"
+            echo "GENAPP_STORE_PASSWORD=$GENAPP_KEYSTORE_PASSWORD"
+            echo "GENAPP_KEY_ALIAS=$GENAPP_KEY_ALIAS"
+            echo "GENAPP_KEY_PASSWORD=$GENAPP_KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        working-directory: out
+        run: ./gradlew :app:assembleRelease --stacktrace
+
+      - name: Verifikasi APK + siapkan nama file
+        env:
+          APP_SLUG: ${{ inputs.app_slug }}
+        run: |
+          set -euo pipefail
+          APK=$(find out/app/build/outputs/apk/release -name "*.apk" | head -1)
+          test -n "$APK"
+          FINAL="$APP_SLUG.apk"
+          cp "$APK" "$FINAL"
+          ls -lh "$FINAL"
+          sha256sum "$FINAL"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging "$FINAL" | head -3
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$FINAL"
+          echo "FINAL_APK=$FINAL" >> "$GITHUB_ENV"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app_slug }}-apk
+          path: ${{ env.FINAL_APK }}
+          if-no-files-found: error
+
+      - name: Terbitkan APK ke Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_NAME: ${{ inputs.app_name }}
+          APP_SLUG: ${{ inputs.app_slug }}
+          VERSION_NAME: ${{ inputs.version_name }}
+          PACKAGE_ID: ${{ inputs.package_id }}
+          SITE_URL: ${{ inputs.site_url }}
+        run: |
+          set -euo pipefail
+          TAG="$APP_SLUG-v$VERSION_NAME-${{ github.run_number }}"
+          gh release create "$TAG" "$FINAL_APK" \
+            --title "$APP_NAME v$VERSION_NAME" \
+            --notes "APK hasil build Web2APK Builder.
+
+          - Website: $SITE_URL
+          - Package: $PACKAGE_ID
+          - Run: ${{ github.run_id }}
+
+          Unduh file APK di bawah, lalu install. Semua APK dari builder ini ditandatangani keystore yang sama, jadi update versi berikutnya bisa menimpa."
+          echo "Release terbit: $TAG"
