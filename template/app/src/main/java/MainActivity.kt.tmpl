@@ -24,6 +24,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import org.json.JSONObject
 
@@ -229,6 +230,12 @@ class MainActivity : AppCompatActivity() {
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             }
             frame.addView(splash)
+        }
+        // Ikon bilah sistem dibuat GELAP: latar di balik status bar /
+        // navigation bar terang, ikon putih bawaan jadi tak terlihat.
+        WindowInsetsControllerCompat(window, frame).apply {
+            isAppearanceLightStatusBars = true
+            isAppearanceLightNavigationBars = true
         }
         // Hormati status bar & navigation bar (edge-to-edge Android 15):
         // konten tidak boleh tertutup bilah sistem.
